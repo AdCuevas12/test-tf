@@ -13,12 +13,12 @@ data "aws_iam_policy_document" "eks_cluster_assume_role" {
   }
 }
 
-data "aws_iam_policy_document" "eks_node_assume_role" {
+data "aws_iam_policy_document" "eks_fargate_assume_role" {
   statement {
     effect = "Allow"
     principals {
       type        = "Service"
-      identifiers = ["ec2.amazonaws.com"]
+      identifiers = ["eks-fargate-pods.amazonaws.com"]
     }
     actions = ["sts:AssumeRole"]
   }
@@ -34,24 +34,14 @@ resource "aws_iam_role_policy_attachment" "cluster_policy" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
 }
 
-resource "aws_iam_role" "node" {
-  name               = var.eks_node_role_name
-  assume_role_policy = data.aws_iam_policy_document.eks_node_assume_role.json
+resource "aws_iam_role" "fargate" {
+  name               = var.eks_fargate_role_name
+  assume_role_policy = data.aws_iam_policy_document.eks_fargate_assume_role.json
 }
 
-resource "aws_iam_role_policy_attachment" "node_worker_policy" {
-  role       = aws_iam_role.node.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
-}
-
-resource "aws_iam_role_policy_attachment" "node_cni_policy" {
-  role       = aws_iam_role.node.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
-}
-
-resource "aws_iam_role_policy_attachment" "node_ecr_policy" {
-  role       = aws_iam_role.node.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+resource "aws_iam_role_policy_attachment" "fargate_pod_execution" {
+  role       = aws_iam_role.fargate.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSFargatePodExecutionRolePolicy"
 }
 
 # ---------------------------------------------------------------------------
@@ -82,38 +72,83 @@ resource "aws_eks_cluster" "this" {
 }
 
 # ---------------------------------------------------------------------------
-# EKS Managed Node Group
+# Fargate Profiles
 # ---------------------------------------------------------------------------
-# t3.medium = 2 vCPU / 4 GiB — exactly the playground per-instance ceiling.
-# Two nodes = total 4 vCPU / 8 GiB, within the 10 vCPU / 20 GiB account cap.
+# Playground allows up to 3 Fargate profiles per cluster.
+# We use 3: one for kube-system, one for all CKA question namespaces,
+# one reserved for ArgoCD/mgw namespaces that need Helm charts.
 
-resource "aws_eks_node_group" "this" {
-  cluster_name    = aws_eks_cluster.this.name
-  node_group_name = "${var.cluster_name}-nodes"
-  node_role_arn   = aws_iam_role.node.arn
-  subnet_ids      = var.subnet_ids
-  instance_types  = [var.node_instance_type]
+locals {
+  cka_namespaces = [
+    "auto-scale",
+    "spline-reticulator",
+    "synergy-leverager",
+    "priority",
+    "mariadb",
+    "relative-fawn",
+    "sound-repeater",
+    "frontend",
+    "backend",
+    "default",
+  ]
+}
 
-  scaling_config {
-    desired_size = var.node_desired_count
-    min_size     = var.node_min_count
-    max_size     = var.node_max_count
-  }
+resource "aws_eks_fargate_profile" "kube_system" {
+  cluster_name           = aws_eks_cluster.this.name
+  fargate_profile_name   = "kube-system"
+  pod_execution_role_arn = aws_iam_role.fargate.arn
+  subnet_ids             = var.subnet_ids
 
-  disk_size = var.node_disk_size
-
-  # Amazon Linux 2 — supported OS per playground
-  ami_type = "AL2_x86_64"
-
-  tags = {
-    Name = "${var.cluster_name}-node-group"
+  selector {
+    namespace = "kube-system"
   }
 
   depends_on = [
     aws_eks_cluster.this,
-    aws_iam_role_policy_attachment.node_worker_policy,
-    aws_iam_role_policy_attachment.node_cni_policy,
-    aws_iam_role_policy_attachment.node_ecr_policy,
+    aws_iam_role_policy_attachment.fargate_pod_execution,
+  ]
+}
+
+resource "aws_eks_fargate_profile" "cka_workloads" {
+  cluster_name           = aws_eks_cluster.this.name
+  fargate_profile_name   = "cka-workloads"
+  pod_execution_role_arn = aws_iam_role.fargate.arn
+  subnet_ids             = var.subnet_ids
+
+  dynamic "selector" {
+    for_each = local.cka_namespaces
+    content {
+      namespace = selector.value
+    }
+  }
+
+  depends_on = [
+    aws_eks_cluster.this,
+    aws_iam_role_policy_attachment.fargate_pod_execution,
+  ]
+}
+
+resource "aws_eks_fargate_profile" "helm_workloads" {
+  cluster_name           = aws_eks_cluster.this.name
+  fargate_profile_name   = "helm-workloads"
+  pod_execution_role_arn = aws_iam_role.fargate.arn
+  subnet_ids             = var.subnet_ids
+
+  selector {
+    namespace = "argocd"
+  }
+
+  selector {
+    namespace = "mgw-migration"
+  }
+
+  selector {
+    namespace = "cert-manager"
+  }
+
+  depends_on = [
+    aws_eks_cluster.this,
+    aws_iam_role_policy_attachment.fargate_pod_execution,
   ]
 }
 

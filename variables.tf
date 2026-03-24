@@ -16,46 +16,16 @@ variable "cluster_version" {
   default     = "1.29"
 }
 
-variable "node_instance_type" {
-  description = "EC2 instance type for EKS worker nodes (must be within playground limits)"
-  type        = string
-  default     = "t3.medium"
-}
-
-variable "node_desired_count" {
-  description = "Desired number of EKS worker nodes"
-  type        = number
-  default     = 2
-}
-
-variable "node_min_count" {
-  description = "Minimum number of EKS worker nodes"
-  type        = number
-  default     = 1
-}
-
-variable "node_max_count" {
-  description = "Maximum number of EKS worker nodes"
-  type        = number
-  default     = 3
-}
-
-variable "node_disk_size" {
-  description = "EBS volume size (GB) for each node. Max 30 GB per playground limits."
-  type        = number
-  default     = 20
-}
-
 variable "eks_cluster_role_name" {
-  description = "Existing IAM role name for the EKS cluster (playground pre-created role)"
+  description = "IAM role name for the EKS cluster"
   type        = string
   default     = "eksClusterRole"
 }
 
-variable "eks_node_role_name" {
-  description = "Existing IAM role name for EKS node group (playground pre-created role)"
+variable "eks_fargate_role_name" {
+  description = "IAM role name for Fargate pod execution"
   type        = string
-  default     = "AmazonEKSNodeRole"
+  default     = "AmazonEKSFargatePodExecutionRole"
 }
 
 variable "vpc_cidr" {

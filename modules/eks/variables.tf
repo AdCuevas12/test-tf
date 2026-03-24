@@ -10,8 +10,9 @@ variable "eks_cluster_role_name" {
   type = string
 }
 
-variable "eks_node_role_name" {
-  type = string
+variable "eks_fargate_role_name" {
+  type    = string
+  default = "AmazonEKSFargatePodExecutionRole"
 }
 
 variable "subnet_ids" {
@@ -20,28 +21,4 @@ variable "subnet_ids" {
 
 variable "cluster_sg_id" {
   type = string
-}
-
-variable "node_sg_id" {
-  type = string
-}
-
-variable "node_instance_type" {
-  type = string
-}
-
-variable "node_desired_count" {
-  type = number
-}
-
-variable "node_min_count" {
-  type = number
-}
-
-variable "node_max_count" {
-  type = number
-}
-
-variable "node_disk_size" {
-  type = number
 }
