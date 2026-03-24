@@ -19,7 +19,8 @@ resource "null_resource" "calico_tigera_operator" {
 
   provisioner "local-exec" {
     command = <<-EOT
-      kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.2/manifests/tigera-operator.yaml
+      aws eks update-kubeconfig --region ${var.aws_region} --name ${var.cluster_name} --kubeconfig /tmp/kubeconfig-cka
+      kubectl --kubeconfig /tmp/kubeconfig-cka apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.2/manifests/tigera-operator.yaml
     EOT
   }
 }

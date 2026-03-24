@@ -16,6 +16,9 @@ resource "null_resource" "cert_manager_crds" {
   }
 
   provisioner "local-exec" {
-    command = "kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.2/cert-manager.crds.yaml"
+    command = <<-EOT
+      aws eks update-kubeconfig --region ${var.aws_region} --name ${var.cluster_name} --kubeconfig /tmp/kubeconfig-cka
+      kubectl --kubeconfig /tmp/kubeconfig-cka apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.2/cert-manager.crds.yaml
+    EOT
   }
 }

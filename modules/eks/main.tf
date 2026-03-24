@@ -118,13 +118,26 @@ resource "aws_launch_template" "node" {
 
   vpc_security_group_ids = [var.node_sg_id]
 
-  # Bootstrap the node into the EKS cluster
+  # Bootstrap the node into the EKS cluster.
+  # AL2023 replaced /etc/eks/bootstrap.sh with nodeadm + a YAML config.
   user_data = base64encode(<<-EOF
-    #!/bin/bash
-    set -ex
-    /etc/eks/bootstrap.sh ${var.cluster_name} \
-      --b64-cluster-ca ${aws_eks_cluster.this.certificate_authority[0].data} \
-      --apiserver-endpoint ${aws_eks_cluster.this.endpoint}
+    MIME-Version: 1.0
+    Content-Type: multipart/mixed; boundary="==BOUNDARY=="
+
+    --==BOUNDARY==
+    Content-Type: application/node.eks.aws
+
+    ---
+    apiVersion: node.eks.aws/v1alpha1
+    kind: NodeConfig
+    spec:
+      cluster:
+        name: ${var.cluster_name}
+        apiServerEndpoint: ${aws_eks_cluster.this.endpoint}
+        certificateAuthority: ${aws_eks_cluster.this.certificate_authority[0].data}
+        cidr: 10.96.0.0/16
+
+    --==BOUNDARY==--
   EOF
   )
 

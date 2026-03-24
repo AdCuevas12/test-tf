@@ -164,8 +164,10 @@ module "q07_gateway_migration" {
 }
 
 module "q08_cni" {
-  source     = "./k8s/q08_cni"
-  depends_on = [module.eks]
+  source       = "./k8s/q08_cni"
+  aws_region   = var.aws_region
+  cluster_name = var.cluster_name
+  depends_on   = [module.eks]
 }
 
 module "q09_wordpress" {
@@ -179,8 +181,10 @@ module "q10_container_runtime" {
 }
 
 module "q11_cert_manager" {
-  source     = "./k8s/q11_cert_manager"
-  depends_on = [module.eks]
+  source       = "./k8s/q11_cert_manager"
+  aws_region   = var.aws_region
+  cluster_name = var.cluster_name
+  depends_on   = [module.eks]
 }
 
 module "q12_netpol" {
