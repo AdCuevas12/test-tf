@@ -98,7 +98,9 @@ resource "aws_eks_cluster" "this" {
 # and the /etc/eks/bootstrap.sh script that ships with it.
 
 data "aws_ssm_parameter" "eks_ami" {
-  name = "/aws/service/eks/optimized-ami/${var.cluster_version}/amazon-linux-2/recommended/image_id"
+  # Use the actual running cluster version, not the variable, so the AMI
+  # always matches even if the sandbox created the cluster on a newer default.
+  name = "/aws/service/eks/optimized-ami/${aws_eks_cluster.this.version}/amazon-linux-2/recommended/image_id"
 }
 
 data "aws_eks_cluster_auth" "this" {
