@@ -100,7 +100,7 @@ resource "aws_eks_cluster" "this" {
 data "aws_ssm_parameter" "eks_ami" {
   # Use the actual running cluster version, not the variable, so the AMI
   # always matches even if the sandbox created the cluster on a newer default.
-  name = "/aws/service/eks/optimized-ami/${aws_eks_cluster.this.version}/amazon-linux-2/recommended/image_id"
+  name = "/aws/service/eks/optimized-ami/${aws_eks_cluster.this.version}/amazon-linux-2023/x86_64/standard/recommended/image_id"
 }
 
 data "aws_eks_cluster_auth" "this" {
