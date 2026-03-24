@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# IAM Roles for EKS
+# IAM Role for EKS Cluster
 # ---------------------------------------------------------------------------
 
 data "aws_iam_policy_document" "eks_cluster_assume_role" {
@@ -8,17 +8,6 @@ data "aws_iam_policy_document" "eks_cluster_assume_role" {
     principals {
       type        = "Service"
       identifiers = ["eks.amazonaws.com"]
-    }
-    actions = ["sts:AssumeRole"]
-  }
-}
-
-data "aws_iam_policy_document" "eks_fargate_assume_role" {
-  statement {
-    effect = "Allow"
-    principals {
-      type        = "Service"
-      identifiers = ["eks-fargate-pods.amazonaws.com"]
     }
     actions = ["sts:AssumeRole"]
   }
@@ -34,14 +23,44 @@ resource "aws_iam_role_policy_attachment" "cluster_policy" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
 }
 
-resource "aws_iam_role" "fargate" {
-  name               = var.eks_fargate_role_name
-  assume_role_policy = data.aws_iam_policy_document.eks_fargate_assume_role.json
+# ---------------------------------------------------------------------------
+# IAM Role for self-managed worker nodes (EC2)
+# ---------------------------------------------------------------------------
+
+data "aws_iam_policy_document" "node_assume_role" {
+  statement {
+    effect = "Allow"
+    principals {
+      type        = "Service"
+      identifiers = ["ec2.amazonaws.com"]
+    }
+    actions = ["sts:AssumeRole"]
+  }
 }
 
-resource "aws_iam_role_policy_attachment" "fargate_pod_execution" {
-  role       = aws_iam_role.fargate.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSFargatePodExecutionRolePolicy"
+resource "aws_iam_role" "node" {
+  name               = var.eks_node_role_name
+  assume_role_policy = data.aws_iam_policy_document.node_assume_role.json
+}
+
+resource "aws_iam_role_policy_attachment" "node_worker_policy" {
+  role       = aws_iam_role.node.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+}
+
+resource "aws_iam_role_policy_attachment" "node_cni_policy" {
+  role       = aws_iam_role.node.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+}
+
+resource "aws_iam_role_policy_attachment" "node_ecr_policy" {
+  role       = aws_iam_role.node.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+}
+
+resource "aws_iam_instance_profile" "node" {
+  name = "${var.eks_node_role_name}-instance-profile"
+  role = aws_iam_role.node.name
 }
 
 # ---------------------------------------------------------------------------
@@ -72,90 +91,89 @@ resource "aws_eks_cluster" "this" {
 }
 
 # ---------------------------------------------------------------------------
-# Fargate Profiles
+# Self-managed worker nodes (EC2)
 # ---------------------------------------------------------------------------
-# Playground allows up to 3 Fargate profiles per cluster.
-# We use 3: one for kube-system, one for all CKA question namespaces,
-# one reserved for ArgoCD/mgw namespaces that need Helm charts.
+# EKS managed node groups and Fargate are blocked by the sandbox SCP.
+# We bootstrap plain EC2 instances using the official EKS optimised AMI
+# and the /etc/eks/bootstrap.sh script that ships with it.
 
-locals {
-  cka_namespaces = [
-    "auto-scale",
-    "spline-reticulator",
-    "synergy-leverager",
-    "priority",
-    "mariadb",
-    "relative-fawn",
-    "sound-repeater",
-    "frontend",
-    "backend",
-    "default",
-  ]
+data "aws_ssm_parameter" "eks_ami" {
+  name = "/aws/service/eks/optimized-ami/${var.cluster_version}/amazon-linux-2/recommended/image_id"
 }
-
-resource "aws_eks_fargate_profile" "kube_system" {
-  cluster_name           = aws_eks_cluster.this.name
-  fargate_profile_name   = "kube-system"
-  pod_execution_role_arn = aws_iam_role.fargate.arn
-  subnet_ids             = var.subnet_ids
-
-  selector {
-    namespace = "kube-system"
-  }
-
-  depends_on = [
-    aws_eks_cluster.this,
-    aws_iam_role_policy_attachment.fargate_pod_execution,
-  ]
-}
-
-resource "aws_eks_fargate_profile" "cka_workloads" {
-  cluster_name           = aws_eks_cluster.this.name
-  fargate_profile_name   = "cka-workloads"
-  pod_execution_role_arn = aws_iam_role.fargate.arn
-  subnet_ids             = var.subnet_ids
-
-  dynamic "selector" {
-    for_each = local.cka_namespaces
-    content {
-      namespace = selector.value
-    }
-  }
-
-  depends_on = [
-    aws_eks_cluster.this,
-    aws_iam_role_policy_attachment.fargate_pod_execution,
-  ]
-}
-
-resource "aws_eks_fargate_profile" "helm_workloads" {
-  cluster_name           = aws_eks_cluster.this.name
-  fargate_profile_name   = "helm-workloads"
-  pod_execution_role_arn = aws_iam_role.fargate.arn
-  subnet_ids             = var.subnet_ids
-
-  selector {
-    namespace = "argocd"
-  }
-
-  selector {
-    namespace = "mgw-migration"
-  }
-
-  selector {
-    namespace = "cert-manager"
-  }
-
-  depends_on = [
-    aws_eks_cluster.this,
-    aws_iam_role_policy_attachment.fargate_pod_execution,
-  ]
-}
-
-# ---------------------------------------------------------------------------
-# Cluster auth token (used by kubernetes / helm providers in root module)
-# ---------------------------------------------------------------------------
 
 data "aws_eks_cluster_auth" "this" {
   name = aws_eks_cluster.this.name
+}
+
+resource "aws_launch_template" "node" {
+  name_prefix   = "${var.cluster_name}-node-"
+  image_id      = data.aws_ssm_parameter.eks_ami.value
+  instance_type = var.node_instance_type
+
+  iam_instance_profile {
+    name = aws_iam_instance_profile.node.name
+  }
+
+  vpc_security_group_ids = [var.node_sg_id]
+
+  # Bootstrap the node into the EKS cluster
+  user_data = base64encode(<<-EOF
+    #!/bin/bash
+    set -ex
+    /etc/eks/bootstrap.sh ${var.cluster_name} \
+      --b64-cluster-ca ${aws_eks_cluster.this.certificate_authority[0].data} \
+      --apiserver-endpoint ${aws_eks_cluster.this.endpoint}
+  EOF
+  )
+
+  block_device_mappings {
+    device_name = "/dev/xvda"
+    ebs {
+      volume_size           = var.node_disk_size
+      volume_type           = "gp3"
+      delete_on_termination = true
+    }
+  }
+
+  tag_specifications {
+    resource_type = "instance"
+    tags = {
+      Name                                        = "${var.cluster_name}-node"
+      "kubernetes.io/cluster/${var.cluster_name}" = "owned"
+    }
+  }
+
+  depends_on = [aws_eks_cluster.this]
+}
+
+resource "aws_autoscaling_group" "nodes" {
+  name                = "${var.cluster_name}-nodes"
+  desired_capacity    = var.node_desired_count
+  min_size            = var.node_min_count
+  max_size            = var.node_max_count
+  vpc_zone_identifier = var.subnet_ids
+
+  launch_template {
+    id      = aws_launch_template.node.id
+    version = "$Latest"
+  }
+
+  tag {
+    key                 = "Name"
+    value               = "${var.cluster_name}-node"
+    propagate_at_launch = true
+  }
+
+  tag {
+    key                 = "kubernetes.io/cluster/${var.cluster_name}"
+    value               = "owned"
+    propagate_at_launch = true
+  }
+
+  depends_on = [
+    aws_launch_template.node,
+    aws_iam_role_policy_attachment.node_worker_policy,
+    aws_iam_role_policy_attachment.node_cni_policy,
+    aws_iam_role_policy_attachment.node_ecr_policy,
+  ]
 }

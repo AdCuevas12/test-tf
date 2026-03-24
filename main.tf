@@ -76,6 +76,31 @@ resource "aws_security_group" "cluster" {
   }
 }
 
+resource "aws_security_group" "nodes" {
+  name        = "${var.cluster_name}-node-sg"
+  description = "EKS self-managed worker node security group"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    description = "Allow all within VPC"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = [var.vpc_cidr]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.cluster_name}-node-sg"
+  }
+}
+
 # ---------------------------------------------------------------------------
 # EKS Module
 # ---------------------------------------------------------------------------
@@ -86,9 +111,15 @@ module "eks" {
   cluster_name          = var.cluster_name
   cluster_version       = var.cluster_version
   eks_cluster_role_name = var.eks_cluster_role_name
-  eks_fargate_role_name = var.eks_fargate_role_name
+  eks_node_role_name    = var.eks_node_role_name
   subnet_ids            = aws_subnet.public[*].id
   cluster_sg_id         = aws_security_group.cluster.id
+  node_sg_id            = aws_security_group.nodes.id
+  node_instance_type    = var.node_instance_type
+  node_desired_count    = var.node_desired_count
+  node_min_count        = var.node_min_count
+  node_max_count        = var.node_max_count
+  node_disk_size        = var.node_disk_size
 }
 
 # ---------------------------------------------------------------------------
