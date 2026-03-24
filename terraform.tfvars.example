@@ -1,0 +1,26 @@
+# Copy this file to terraform.tfvars and fill in any overrides.
+# All values below are the defaults — change only what you need.
+
+aws_region    = "us-east-1"
+cluster_name  = "cka-mock-exam"
+
+# Kubernetes version (EKS)
+cluster_version = "1.29"
+
+# EC2 instance type — t3.medium = 2 vCPU / 4 GiB (playground max per instance)
+node_instance_type = "t3.medium"
+
+# Worker node count (2 nodes = 4 vCPU / 8 GiB total, within playground caps)
+node_desired_count = 2
+node_min_count     = 1
+node_max_count     = 3
+
+# EBS volume per node (GP2, max 30 GB per playground limits)
+node_disk_size = 20
+
+# IAM roles — these are pre-created by the KodeKloud playground sandbox
+eks_cluster_role_name = "eksClusterRole"
+eks_node_role_name    = "AmazonEKSNodeRole"
+
+# Subnets spread across two AZs for EKS HA requirement
+availability_zones = ["us-east-1a", "us-east-1b"]
